@@ -8,7 +8,12 @@ require 'action_dispatch/testing/assertions/selector'
 # Under MIT and/or CC By license.
 #++
 
-ActionDispatch::Assertions::SelectorAssertions.module_eval do
+mod = if ::Rails.const_defined?(:Dom)
+  ::Rails::Dom::Testing::Assertions::SelectorAssertions
+else
+  ActionDispatch::Assertions::SelectorAssertions
+end
+mod.module_eval do
   # Selects content from the RJS response.
   #
   # === Narrowing down
@@ -169,31 +174,33 @@ ActionDispatch::Assertions::SelectorAssertions.module_eval do
   RJS_STATEMENTS[:any] = Regexp.new("(#{RJS_STATEMENTS.values.join('|')})")
   RJS_PATTERN_UNICODE_ESCAPED_CHAR = /\\u([0-9a-zA-Z]{4})/
 
-  # +assert_select+ and +css_select+ call this to obtain the content in the HTML
-  # page, or from all the RJS statements, depending on the type of response.
-  def response_from_page_with_rjs
-    content_type = @response.content_type
+  if instance_methods.include?('response_from_page')
+    # +assert_select+ and +css_select+ call this to obtain the content in the HTML
+    # page, or from all the RJS statements, depending on the type of response.
+    def response_from_page_with_rjs
+      content_type = @response.content_type
 
-    if content_type && Mime::JS =~ content_type
-      body = @response.body.dup
-      root = HTML::Node.new(nil)
+      if content_type && Mime::JS =~ content_type
+        body = @response.body.dup
+        root = HTML::Node.new(nil)
 
-      while true
-        next if body.sub!(RJS_STATEMENTS[:any]) do |match|
-          html = unescape_rjs(match)
-          matches = HTML::Document.new(html).root.children.select { |n| n.tag? }
-          root.children.concat matches
-          ""
+        while true
+          next if body.sub!(RJS_STATEMENTS[:any]) do |match|
+            html = unescape_rjs(match)
+            matches = HTML::Document.new(html).root.children.select { |n| n.tag? }
+            root.children.concat matches
+            ""
+          end
+          break
         end
-        break
-      end
 
-      root
-    else
-      response_from_page_without_rjs
+        root
+      else
+        response_from_page_without_rjs
+      end
     end
+    alias_method_chain :response_from_page, :rjs
   end
-  alias_method_chain :response_from_page, :rjs
 
   # Unescapes a RJS string.
   def unescape_rjs(rjs_string)
